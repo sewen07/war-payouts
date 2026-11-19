@@ -30,7 +30,7 @@
 </head>
 <body>
 
-  <h2>Torn War Payout Calculator - Blade Runners</h2>
+  <h2>Torn War Payout Calculator</h2>
 
   <div class="card">
     <label>Torn Limited API Key</label>
@@ -66,10 +66,19 @@
   <div id="toast">Copied!</div>
 
   <script>
+    // 1. When page loads, restore all saved settings if they exist
     window.addEventListener('DOMContentLoaded', () => {
-      const savedKey = localStorage.getItem('torn_api_key');
-      if (savedKey) {
-        document.getElementById("apiKey").value = savedKey;
+      if (localStorage.getItem('torn_api_key')) {
+        document.getElementById("apiKey").value = localStorage.getItem('torn_api_key');
+      }
+      if (localStorage.getItem('torn_cash_pool')) {
+        document.getElementById("cashPool").value = localStorage.getItem('torn_cash_pool');
+      }
+      if (localStorage.getItem('torn_faction_cut')) {
+        document.getElementById("factionCut").value = localStorage.getItem('torn_faction_cut');
+      }
+      if (localStorage.getItem('torn_min_hits')) {
+        document.getElementById("minHits").value = localStorage.getItem('torn_min_hits');
       }
     });
 
@@ -91,7 +100,11 @@
       if (!apiKey) return alert("Please enter your Torn API key.");
       if (isNaN(totalPool) || totalPool <= 0) return alert("Please enter a valid total cash pool amount.");
 
+      // 2. Save all settings to browser storage upon clicking calculate
       localStorage.setItem('torn_api_key', apiKey);
+      localStorage.setItem('torn_cash_pool', totalPool);
+      localStorage.setItem('torn_faction_cut', factionCutPercent);
+      localStorage.setItem('torn_min_hits', minHits);
 
       try {
         const facRes = await fetch(`https://api.torn.com/faction/?selections=basic,rankedwars&key=${apiKey}`);
@@ -106,7 +119,6 @@
         const warData = await warRes.json();
         const members = Object.values(warData.rankedwarreport.factions[myFactionId].members);
 
-        // Calculate member pool after faction cut
         const memberPool = totalPool * (1 - (factionCutPercent / 100));
 
         members.sort((a, b) => b.attacks - a.attacks);
