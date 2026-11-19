@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Torn Ranked War Payouts</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #1a1a1a; color: #f0f0f0; padding: 16px; max-width: 600px; margin: auto; }
+    h2 { color: #4caf50; margin-top: 0; }
+    .card { background: #262626; padding: 16px; border-radius: 8px; margin-bottom: 16px; }
+    label { display: block; font-size: 14px; color: #bbb; margin-bottom: 4px; }
+    input { width: 100%; padding: 10px; margin-bottom: 12px; border-radius: 6px; border: 1px solid #444; background: #1a1a1a; color: #fff; box-sizing: border-box; font-size: 16px; }
+    button { width: 100%; padding: 12px; background: #4caf50; color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; }
+    button:hover { background: #45a049; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #333; }
+    th { color: #888; font-size: 13px; }
+    .money { text-align: right; font-family: monospace; color: #4caf50; font-weight: bold; }
+    .disqualified { color: #777; }
+    .copyable { cursor: pointer; transition: opacity 0.15s; }
+    .copyable:active { opacity: 0.5; }
+    #summary { font-size: 14px; color: #ccc; margin-bottom: 10px; }
+    #toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: #4caf50; color: #fff; padding: 8px 16px; border-radius: 20px;
+      font-size: 14px; font-weight: bold; opacity: 0; pointer-events: none;
+      transition: opacity 0.2s;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Torn War Payout Calculator - Blade Runners</h2>
+
+  <div class="card">
+    <label>Torn Limited API Key</label>
+    <input type="password" id="apiKey" placeholder="Paste your API key...">
+
+    <label>Total War Cash Pool ($)</label>
+    <input type="number" id="cashPool" value="850000000">
+
+    <label>Minimum Hits to Qualify</label>
+    <input type="number" id="minHits" value="10">
+
+    <button onclick="calculatePayouts()">Pull Latest War & Calculate</button>
+  </div>
+
+  <div class="card" id="resultsCard" style="display:none;">
+    <div id="summary"></div>
+    <p style="font-size:12px; color:#888; margin:0 0 8px 0;">Tap any name or payout to copy</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Member</th>
+          <th>Hits</th>
+          <th style="text-align:right;">Payout</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+  <div id="toast">Copied!</div>
+
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const savedKey = localStorage.getItem('torn_api_key');
+      if (savedKey) {
+        document.getElementById("apiKey").value = savedKey;
+      }
+    });
+
+    function copyText(text) {
+      navigator.clipboard.writeText(text).then(() => {
+        const toast = document.getElementById("toast");
+        toast.textContent = `Copied: ${text}`;
+        toast.style.opacity = "1";
+        setTimeout(() => { toast.style.opacity = "0"; }, 1200);
+      });
+    }
+
+    async function calculatePayouts() {
+      const apiKey = document.getElementById("apiKey").value.trim();
+      const cashPool = Number(document.getElementById("cashPool").value);
+      const minHits = Number(document.getElementById("minHits").value);
+
+      if (!apiKey) return alert("Please enter your Torn API key.");
+      localStorage.setItem('torn_api_key', apiKey);
+
+      try {
+        const facRes = await fetch(`https://api.torn.com/faction/?selections=basic,rankedwars&key=${apiKey}`);
+        const facData = await facRes.json();
+        if (facData.error) return alert("API Error: " + facData.error.error);
+
+        const myFactionId = facData.ID.toString();
+        const warIds = Object.keys(facData.rankedwars);
+        const latestWarId = warIds.sort((a, b) => Number(b) - Number(a))[0];
+
+        const warRes = await fetch(`https://api.torn.com/torn/${latestWarId}?selections=rankedwarreport&key=${apiKey}`);
+        const warData = await warRes.json();
+        const members = Object.values(warData.rankedwarreport.factions[myFactionId].members);
+
+        members.sort((a, b) => b.attacks - a.attacks);
+        const eligibleHits = members
+          .filter(m => m.attacks >= minHits)
+          .reduce((sum, m) => sum + Number(m.attacks), 0);
+
+        const payPerHit = eligibleHits > 0 ? Math.floor(cashPool / eligibleHits) : 0;
+
+        const tbody = document.getElementById("tableBody");
+        tbody.innerHTML = "";
+
+        members.forEach(m => {
+          const qualified = m.attacks >= minHits;
+          const payout = qualified ? m.attacks * payPerHit : 0;
+          
+          const row = document.createElement("tr");
+          if (!qualified) row.className = "disqualified";
+
+          // Name cell (copies player name)
+          const nameCell = document.createElement("td");
+          nameCell.className = "copyable";
+          nameCell.textContent = m.name;
+          nameCell.onclick = () => copyText(m.name);
+
+          // Hits cell
+          const hitsCell = document.createElement("td");
+          hitsCell.textContent = m.attacks;
+
+          // Payout cell (displays formatted money, copies clean integer)
+          const moneyCell = document.createElement("td");
+          moneyCell.className = "money copyable";
+          moneyCell.textContent = `$${payout.toLocaleString("en-US")}`;
+          moneyCell.onclick = () => copyText(payout.toString());
+
+          row.appendChild(nameCell);
+          row.appendChild(hitsCell);
+          row.appendChild(moneyCell);
+          tbody.appendChild(row);
+        });
+
+        document.getElementById("summary").innerHTML = 
+          `War ID: <b>${latestWarId}</b> | Eligible Hits: <b>${eligibleHits}</b> | Pay/Hit: <b>$${payPerHit.toLocaleString("en-US")}</b>`;
+        document.getElementById("resultsCard").style.display = "block";
+
+      } catch (err) {
+        alert("Something went wrong fetching data.");
+      }
+    }
+  </script>
+</body>
+</html>
